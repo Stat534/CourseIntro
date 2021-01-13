@@ -1,0 +1,268 @@
+---
+title: "Overview of Linear Models, Bayesian Inference, and STAN"
+output: pdf_document
+---
+
+\renewcommand{\vec}[1]{\mathbf{#1}}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 4, fig.width = 6)
+library(tidyverse) 
+library(gridExtra)
+library(arm)
+library(rstanarm)
+```
+
+
+## Key Concepts
+
+- Linear Model Specification
+- Simulating Data in R
+- Fitting Linear Models in R
+- Bayesian Inference
+- Fitting Bayesian Models with Stan
+
+\vfill
+
+### Linear Model Specification
+
+Linear models provide the foundation for most statistical analyses: 
+
+- _univariate regression models: $y = \beta_0 + \beta_1 x + \epsilon$, where $\epsilon \sim N(0,\sigma^2)$_
+\vfill
+
+- _regression models(matrix notation): $\vec{y} = X\vec{\beta} + \vec{\epsilon}$, where $\epsilon \sim N(\vec{0},\Sigma)$ and $\Sigma = \sigma^2 I$_
+\vfill
+
+- _two sample t-test: $y = \beta_0 + \beta_1 x_{I = group1} + \epsilon$, where $\epsilon \sim N(0,\sigma^2)$_
+
+\vfill
+
+One assumption, that is often violated in spatial statistics is that the errors are independently distributed.
+
+\newpage
+
+### Simulating Data in R
+
+Simulating "fake" data will be a cornerstone of fitting models in this class.
+
+```{r}
+set.seed(01112021)
+# initialize parameters
+num_obs <- 100
+beta <- 1
+sigma <- 2
+
+# simulate data
+x <- runif(num_obs, min = -10, max = 10)
+y <- x * beta + rnorm(num_obs, mean = 0, sd = sigma)
+```
+
+\vfill
+
+```{r, fig.cap = "Scatterplot of synthetic data with best fit regression line."}
+# create figure
+tibble(x=x, y=y) %>%
+  ggplot(aes(x=x, y=y)) +
+  geom_point() + 
+  theme_bw() + 
+  geom_smooth(formula = 'y~x', method = 'lm')
+```
+
+\newpage
+
+### Fitting Linear Models in R
+
+The standard method for fitting linear models in R is with `lm()`.
+
+```{r}
+fit_lm <- lm(y ~ x)
+summary(fit_lm)
+```
+
+A quick interlude about model interpretation.
+
+- _Avoid casual language or even language that suggest casuality. For instance "a one unit increase in x results in a one unit increase in y". Rather than discussing changes **within a unit**, we should talk about changes **between units.** Hence, the expected difference between two units that differ by one unit in x is XYZ._
+
+\vfill
+
+- P-values... The ASA Statement on p-values is ["required reading"](https://www.tandfonline.com/doi/full/10.1080/00031305.2016.1154108). _Know what the can and cannot do. If you choose to use p-values, always include uncertainty in the effect size: evidence (p-value) and effects._
+
+\vfill
+
+\newpage
+
+_The `arm` package, associated with Gelman and Hill's textbook, *Data Analysis Using Regression and Multilevel/Hierarchical Models,* has a function that hides p-values._
+
+
+\vfill
+
+```{r}
+display(fit_lm)
+```
+
+\vfill
+
+An alternative framework for fitting regression models is to use the `rstanarm` package and the associated `stan_glm()` functionality.
+
+\vfill
+
+```{r}
+synthetic_data <- tibble(x = x, y = y)
+fit_stan <- stan_glm(y ~ x, data = synthetic_data, refresh = 0)
+print(fit_stan)
+```
+
+\newpage
+
+
+### Bayesian Inference
+
+_`stan_glm()` is a Bayesian procedure that uses Markov Chain Monte Carlo to generate samples that represent distribution for each parameter._
+
+\vfill
+
+While there are coefficient estimates similar to `lm`
+
+```{r}
+coef(fit_stan)
+```
+
+\vfill
+
+Rather than just a point estimate that maximizes the likelihood, the object actually contains a set of samples for each of the parameter values.
+
+```{r}
+fit_stan %>% as.data.frame() %>% head(10)
+```
+\vfill
+
+_While the estimation procedure and interval interpretations are fundamentally different, the actual values on the interval are fairly similar._
+
+\vfill
+
+```{r}
+posterior_interval(fit_stan, prob = .95)
+confint(fit_lm)
+```
+
+\newpage
+
+So what is hiding in this model specification? 
+
+```{r}
+synthetic_data <- tibble(x = x, y = y)
+fit_stan <- stan_glm(y ~ x, data = synthetic_data, refresh = 0)
+```
+
+\vfill
+
+__priors, of course__
+
+\vfill
+
+```{r}
+prior_summary(fit_stan)
+```
+
+\newpage
+
+##### Bayes Rule
+
+_Bayes Rule (Theorem) is a common topic in probability courses, and while it carries the "Bayes" moniker it is not synonymous with Bayesian inference._
+
+\vfill
+
+$$Pr(A|B) = \frac{Pr(A \cap B)}{Pr(B)} = \frac{Pr(B|A) Pr(A)}{Pr(B)},$$
+
+where $Pr(A|B)$ is a conditional probability of event A, given event B.
+
+\vfill
+
+The classic example of Bayes Rule focuses on medical testing. So consider a COVID-19 testing scenario. Assume we want to know the probability that an individual is positive given they received a positive test  or Pr(An individual is positive | test is positive).
+Let:
+
+- Pr(An individual is Positive) = .10 (Note this is generally a population prevalence)
+
+\vfill
+
+- Pr(test is positive | an individual is positive) = .93 __(sensitivity)__
+
+\vfill
+
+- Pr(test is positive | an individual is not positive) = .02 __(1 - specificity)__
+
+\vfill
+
+- Pr(test is positive) = Pr(test is positive | an individual is positive) x Pr(an individual is positive) + Pr(test is positive | an individual is not positive) x Pr(an individual is not positive)
+
+\vfill
+
+```{r}
+prev <- .10
+sens <- .93
+spec <- .98
+
+Pr_pos_pos = (sens * prev) / (sens * prev + (1 - spec) * (1 - prev))
+```
+
+Then the probability that an individual with a positive test has COVID-19 is `r round(Pr_pos_pos,2)`.
+
+\newpage
+
+As mentioned, using Bayes's theorem does not equate with Bayesian inference, but rather what we have just done is an exercise with conditional probability.
+
+\vfill
+
+_Bayesian inference requires a prior probability distribution for model parameters that is specified before collecting data (or analyzing data). This represents prior "beliefs" about the plausible range of parameter values. Let this be generically denoted $p(\theta)$._
+
+\vfill
+
+_Then once data has been collected, a sampling distribution for the data is specified. In many cases (t-test, regression, etc...) this is a normal distribution. Let the probability distribution be stated as $p(X|\theta).$_
+
+\vfill
+
+Maximum likelihood estimator use the sampling distribution, or more specifically the likelihood, to select parameter values ($\hat{\theta}_{MLE}$) that maximize the likelihood.
+
+\vfill
+
+*With MLEs, uncertainty intervals are calculated analytically using the distribution of $\hat{\theta}_{MLE}$, sometimes requiring asymptotics.*
+
+\vfill
+
+*Bayesian inference uses another mechanism, Bayes's Theorem, to conduct inference.*
+
+$$p(\theta|X) = \frac{p(X|\theta) p(\theta)}{p(X)},$$
+*Inferences are made using the posterior distribution, $p(\theta|x)$ which is a probability distribution that contains the range of plausible values for the parameter(s) $\theta$.*
+
+\vfill
+
+\newpage
+
+In some situations, the posterior distribution can be analytically calculated. However, in many scenarios, $p(x)$ requires integration and does not have an analytical solution.
+
+\vfill
+
+*In these situations, Markov Chain Monte Carlo (MCMC) is used to compute the posterior distribution. The `stan_glm()` functions call STAN to implement MCMC behind the curtain to find posterior distributions of parameters. MCMC can be written in any language, but STAN has some nice advantages (Hamiltonian Monte Carlo).*
+
+\vfill
+
+STAN can be called directly from R (or R Markdown documents.). The basic structure of a STAN script looks like:
+
+```{r, eval = F}
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  real alpha;
+  real beta;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(alpha + beta * x, sigma);
+}
+```
+
+\vfill
